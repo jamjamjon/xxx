@@ -1,0 +1,42 @@
+# base config
+
+device: cpu
+test_image: deploy/assets/1.jpg
+model_class: EnsembleModel  
+# component_name: untitled   
+description: This is base config's description!
+user: ${oc.env:USER}
+
+
+
+# output_dir: ${hydra:runtime.output_dir}
+# # root_dir: ${oc.env:PROJECT_ROOT}
+# # path to data directory
+# data_dir: ${paths.root_dir}/data/
+# # path to logging directory
+# log_dir: ${paths.root_dir}/logs/
+
+
+
+
+# user: ${oc.env:USER}
+
+# print(f"Orig working directory    : {hydra.utils.get_original_cwd()}")
+# print(f"to_absolute_path('foo')   : {hydra.utils.to_absolute_path('foo')}")
+# print(f"to_absolute_path('/foo')  : {hydra.utils.to_absolute_path('/foo')}")
+
+
+
+
+
+# build model
+# hydra.initialize(version_base=None, config_path="configs") 
+# cfg_playing_phone = hydra.compose(config_name="playing_phone")  
+# cfg_playing_phone = parse_model_config(cfg_playing_phone)
+
+
+# model_playing_phone = PlayingPhoneModel(parse_model_config(cfg['playing_phone']))
+# model_mask_wearing = MaskWearingModel(parse_model_config(cfg['mask_wearing']))
+# model_face_mask = FaceMaskModel(parse_model_config(cfg['face_mask']))
+
+

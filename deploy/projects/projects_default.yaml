@@ -1,0 +1,76 @@
+# -----------------------------
+#   defaults
+# -----------------------------
+defaults:
+  - _self_
+
+  # load projects
+  - face_mask_unknown: configs/default
+  - playing_phone: configs/default
+  - mask_wearing: configs/default
+
+
+# -----------------------------
+#   override hydra setting
+# -----------------------------
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+  job_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s] [%(levelname)s] [%(filename)s(%(lineno)s)] %(message)s'
+      colorlog:
+        (): colorlog.ColoredFormatter
+        format: '[%(cyan)s%(asctime)s%(reset)s][%(blue)s%(filename)s(%(lineno)s)%(reset)s][%(log_color)s%(levelname)s%(reset)s]
+          --> %(message)s'
+        log_colors:
+          DEBUG: purple
+          INFO: green
+          WARNING: yellow
+          ERROR: red
+          CRITICAL: red
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: colorlog
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        formatter: simple
+        filename: ${hydra.runtime.output_dir}/${hydra.job.name}.log
+    root:
+      level: INFO
+      handlers:
+      - console
+      - file
+    disable_existing_loggers: false
+
+
+
+
+
+# --------------------------------------------
+#   override or add new projects attrs  
+# --------------------------------------------
+# face_mask_unknown:
+#   device: cpu
+
+# mask_wearing:
+#   device: 0
+
+# playing_phone:
+#   device: 1
+
+
+# -----------------------------
+#   TODO: common settings   
+# -----------------------------
+# common:
+#   user: ${oc.env:USER}
+#   ROOT_DIR: ${hydra:runtime.cwd}
+#   device: 2
+
+

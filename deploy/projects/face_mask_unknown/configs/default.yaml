@@ -1,0 +1,30 @@
+# defaults:
+#   - ../../base@_here_
+#   - _self_
+
+
+# override
+device: cpu
+test_image: deploy/assets/1.jpg
+model_class: FaceMaskModel   # required
+description: null
+component_name: untitled   # TODO
+
+
+
+# modules
+modules:  # don't change this name
+  - face_mask_unknown:  # model_name, required
+      model_type: classifier   # required
+      model_weights: deploy/projects/face_mask_unknown/weights/face-mask-s-128-230111.onnx  # root ,required
+      input_size: 128   # optional, auto infer
+      conf_threshold: 0.6   # required
+      classes_names:  # optional
+        0: face
+        1: mask
+        2: unknown   
+
+  # - another_model_name:
+      # model_type: classifier
+      # ...
+

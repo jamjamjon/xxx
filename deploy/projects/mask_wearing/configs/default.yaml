@@ -1,0 +1,42 @@
+# defaults:
+#   - ../../base@_here_
+#   - _self_
+
+
+# override
+device: cpu
+test_image: deploy/assets/bus.jpg  
+model_class: MaskWearingModel   # required  
+description: null    # optional 
+component_name: untitled   # TODO: optional 
+
+
+# modules
+modules:
+  - head_detector:  # model name, required
+      # model_name: head_detector   
+      model_type: detector   # required
+      model_weights: deploy/projects/mask_wearing/weights/head-m-221219.onnx  # required
+      input_size: 640   # optional
+      conf_threshold: 0.55   # required
+      nms_threshold: 0.45   # required
+      classes_names:  # optional
+        0: cellphone
+        1: playing_phone   
+      min_bbox_size: 20   # min detection bouding box
+      overlap_self_iou: 0.92  # phone and playing_phone iou
+      # desc: null # optional
+
+  - face_mask_unknown_classifier:  # model name, required
+      # model_name: face_mask_unknown_classifier   # required
+      model_type: classifier   # required
+      model_weights: deploy/projects/mask_wearing/weights/face-mask-s-128-230111.onnx  # root ,required
+      input_size: 128   # optional, auto infer
+      conf_threshold: 0.5   # required
+      classes_names:  # optional
+        0: face
+        1: mask
+        2: unknown   
+      # desc: null # optional
+
+  # - module3:  # if has  
