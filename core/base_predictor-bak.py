@@ -173,6 +173,8 @@ class Predictor:
 
 
 
+
+
     def pre_process(self, x, size):
         # batch images pre-process
 
@@ -335,43 +337,13 @@ class Predictor:
 
 
     # def __call__(self, x, do_post_process=True):
-    #     # x  ----> Dataset iterator
-    #     ys = []
-    #     for path, im, im0s, vid_cap, s in x:  # dataset
-    #         y = self.auto_infer()  # multi infer
-    #         ys.append(y)
-
-    #     return ys
-
-
+    # x  ----> Dataset iterator
 
 
     def __call__(self, x, do_post_process=True):
-        # x -> dataloader
-
-        # LOGGER.info(f'x: {x}')
-        # self.ims, self.im0s = x.pre_process(
-        #     size=self.input_size,
-        #     is_detector=self.is_detector, 
-        #     is_classifier=self.is_classifier, 
-        #     is_other=self.is_other
-        # )
-
-
-        # sys.exit()
-
         # 
         # with INSPECTOR('pre_process'):
         self.ims, self.im0s = self.pre_process(x, size=self.input_size)  # pre process for all type model
-
-        # rich.print(f"self.imgs ---> {self.ims.shape}")  # (bs, 3, 640, 640)
-        # rich.print(f"self.im0s ---> {self.im0s}")  # [ndarray, ndarry, ...]
-
-        # 策略1 batch推理： 如果是一堆图片，如: [img, img, img, ...](或者 一个txt文件, 里面存储着每个图片的地址，{手动解析})
-        # ===>  那么一次性推理所有图片, 或者单张图片推理两种模式
-        # 策略2 单/多个 视频流推理：如: [rtsp://, rtsp://, rtsp://, ...] 或者 一个txt文件, 里面存储着每个图片的地址, 
-        # ==> 那么采用多线程推理逐帧推理
-
 
         # with INSPECTOR('auto_infer'):
         y = self.auto_infer()  # multi infer

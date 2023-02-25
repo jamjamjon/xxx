@@ -14,6 +14,7 @@ from flask import Flask, request, jsonify
 import base64
 
 
+
 # path
 FILE = Path(__file__).resolve() # file resolve path
 ROOT_DIR = FILE.parents[3]  # ROOT_dir
@@ -27,6 +28,8 @@ if str(ROOT_DIR) not in sys.path:
 from core.base_model import EnsembleModel
 from core.utils import (parse_model_config, CONSOLE, build_resolver, resource_info, gpu_info, TIMER, 
                         get_device)
+from core.dataloader import LoadImages, LoadBatchImages, LoadStreams
+
 
 
 # yaml path (modify this for every project)
@@ -189,12 +192,102 @@ def main(cfg) -> None:
             "deploy/assets/bus.jpg",
             ]
 
-    y = model(img)    # infer
-    rich.print(y)
 
 
+    # 通过输入判断是否是batch推理还是单帧推理
+
+
+
+    # 写成装饰器！！！！Dataset 仅仅用来处理不同形式的输入数据，不要把model_type以及对应的前处理引入
     # @Dataset
     # y = model(img)
+
+
+    # 策略1 batch推理： 如果是一堆图片，如: [img, img, img, ...](或者 一个txt文件, 里面存储着每个图片的地址，{手动解析})
+    # ===>  那么一次性推理所有图片, 
+    # dataloader = LoadBatchImages(path=img)
+    # y = model(dataloader)    # infer
+
+    # y = model(img)    # infer
+    # rich.print(y)
+
+
+    # # ===> 单张图片推理(图片+视频)
+    # img_txt = 'deploy/projects/playing_phone/source.txt'
+    # dataloader = LoadImages(path=img_txt, vid_stride=5)
+    # # dataloader = LoadImages(path=img)
+    # # # dataloader = LoadImages(path='/Users/jamjon/Documents/Assets/fall_1.mp4')
+
+    # for path, im0, _, s in dataloader:
+    #     # rich.print(path)
+    #     rich.print(s)
+    #     y = model([im0])    # single image
+    #     rich.print(y)
+
+    #     # visualize
+    #     for elem in y:
+    #         if elem['box']:
+    #             xyxy = elem['box']
+    #             conf = elem['conf']
+    #             class_label = elem['class_label']
+
+    #             cv2.rectangle(im0, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2, cv2.LINE_AA)  # filled
+    #             cv2.putText(
+    #                 im0, 
+    #                 class_label + ' ' + str(conf),
+    #                 (int(xyxy[0]), int(xyxy[1] - 5)), 0, 0.7, 
+    #                 (0, 255, 0), 
+    #                 thickness=2, 
+    #                 lineType=cv2.LINE_AA
+    #             )
+
+    #         cv2.imshow('demo', im0)
+    #         key = cv2.waitKey(1)
+    #         if key == 27:
+    #             cv2.destroyAllWindows()
+    #             return
+
+
+
+    # 策略2 单/多个 视频流推理：如: [rtsp://, rtsp://, rtsp://, ...] 或者 一个txt文件, 里面存储着每个stream的地址, 
+    # ==> 那么采用多线程推理逐帧推理
+    rtsp_txt = 'deploy/projects/playing_phone/rtsp.txt'
+    dataloader = LoadStreams(sources=rtsp_txt)
+    for path, im, im0, _, s in dataloader:
+        # rich.print(path)
+        # rich.print(s)
+
+        # rich.print(f'im shape: {im.shape}')
+        # rich.print(f'im0 shape: {len(im0)}')
+
+        # sys.exit()
+
+        y = model(im0)    # infer   # im: [bs, 3, h, w] | im0: [img, img, ...]
+        rich.print(y)
+
+        # visualize
+        for idx, elem in enumerate(y):
+            if elem['box']:
+                xyxy = elem['box']
+                conf = elem['conf']
+                class_label = elem['class_label']
+                image_id = elem['image_id']
+
+                cv2.rectangle(im0[idx], (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2, cv2.LINE_AA)  # filled
+                cv2.putText(
+                    im0, 
+                    class_label + ' ' + str(conf),
+                    (int(xyxy[0]), int(xyxy[1] - 5)), 0, 0.7, 
+                    (0, 255, 0), 
+                    thickness=2, 
+                    lineType=cv2.LINE_AA
+                )
+
+            cv2.imshow('demo_' + str(idx), im0[idx])
+            key = cv2.waitKey(1)
+            if key == 27:
+                cv2.destroyAllWindows()
+                return
 
 
 

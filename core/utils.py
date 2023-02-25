@@ -22,6 +22,7 @@ import onnxruntime
 import weakref
 from dataclasses import dataclass
 from typing import Union
+import re
 # from pympler import asizeof as pysizeof
 # sizeof = pysizeof.asizeof
 
@@ -32,6 +33,7 @@ from typing import Union
 WEIGHTS_TYPE = ('.onnx', '.pt', '.engine')
 MODEL_TYPE = ('detector', 'classifier', 'other')
 IMG_FORMAT = ('.bmp', '.jpg', '.jpeg', '.png')
+VIDEO_FORMAT = ('.mp4', '.flv', '.avi')
 FLASK_APP = Flask(__name__)
 CONSOLE = Console()
 GB, MB, KB = 1 << 30, 1 << 20, 1 << 10
@@ -66,6 +68,8 @@ class InstanceInfo:
     date: str   # instance init time
     component_name: str = 'default' # TODO: keep or delete
     # device: Union[str, int] = 'cpu'  # TODO:
+
+
 
 
 
@@ -663,6 +667,11 @@ def pysizeof(obj, seen=None):
         size += sum(pysizeof(getattr(obj, s), seen) for s in obj.__slots__ if hasattr(obj, s))
         
     return size
+
+
+def clean_str(s):
+    # Cleans a string by replacing special characters with underscore _
+    return re.sub(pattern='[|@#!¡·$€%&()=?¿^*;:,¨´><+]', repl='_', string=s)
 
 
 
