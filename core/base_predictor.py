@@ -1,3 +1,4 @@
+import tensorrt as trt
 import numpy as np
 import onnxruntime
 from pathlib import Path
@@ -17,7 +18,16 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from numba import jit
+from collections import OrderedDict
+# from numba import jit
+import ctypes
+import torch
+
+from collections import namedtuple
+import pycuda.autoinit  # noqa F401
+import pycuda.driver as cuda
+# import tensorrt as trt
+from typing import List, Optional, Tuple, Union
 
 
 # path
@@ -66,7 +76,7 @@ class Predictor:
         self.device = device  # override device
 
         # check weights type
-        self.onnx, self.pt, self.engine = False, False, False 
+        self.onnx, self.pt, self.engine = False, False, False
         if self.model_weights is not None:
             suffix = Path(self.model_weights).suffix.lower()
             assert suffix in WEIGHTS_TYPE, f'{suffixx} is not supported.'
@@ -89,8 +99,8 @@ class Predictor:
                 ('CUDAExecutionProvider', {
                     'device_id': self.device.id,
                     'arena_extend_strategy': 'kNextPowerOfTwo',
-                    # 'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
-                    'gpu_mem_limit': 5 * GB,
+                    'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
+                    # 'gpu_mem_limit': 5 * GB,
                     'cudnn_conv_algo_search': 'EXHAUSTIVE',
                     'do_copy_in_default_stream': True,
                 }),
@@ -114,13 +124,91 @@ class Predictor:
             # init device mem
             self.ort_x, self.ort_y = None, None
 
-
         elif self.pt:  # Not Now
             pass
 
         elif self.engine: # TODO
-            pass
- 
+            LOGGER.info(f"TRT: {trt.__version__}")
+
+            # self.ctx = cuda.Device(self.device.id).make_context()
+
+            logger = trt.Logger(trt.Logger.INFO)
+            with open(self.model_weights, 'rb') as f, trt.Runtime(logger) as runtime:
+                self.model = runtime.deserialize_cuda_engine(f.read())
+            self.context = self.model.create_execution_context()
+            self.inputs, self.outputs, self.bindings = [], [], []
+            self.stream = cuda.Stream()
+            self.dynamic, self.fp16, self.fp32, self.int8 = False, False, False, False
+            self.num_inputs = np.sum(self.model.binding_is_input(i) for i in range(self.model.num_bindings))
+            self.num_outputs = self.model.num_bindings - self.num_inputs
+
+            for i in range(self.model.num_bindings):
+
+                dtype = trt.nptype(self.model.get_binding_dtype(i))  # numpy dtype
+                name = self.model.get_binding_name(i)   
+                shape = self.model.get_binding_shape(i) 
+
+                # info
+                rich.print(f"> {i} | {name} | {shape} | {dtype} | context shape: {self.context.get_binding_shape(i)}")
+
+                # fp16 / fp32 / int8
+                if dtype == np.float16:
+                    self.fp16 = True
+                elif dtype == np.float32:
+                    self.fp32 = True
+                elif dtype == np.int8:
+                    self.int8 = True
+
+
+                # inputs
+                if self.model.binding_is_input(i):
+                    # dynamic shape
+                    if -1 in tuple(self.model.get_binding_shape(i)):
+                        self.dynamic = True
+                        self.dynamic_min_shape = tuple(self.model.get_profile_shape(0, i)[0])
+                        self.dynamic_opt_shape = tuple(self.model.get_profile_shape(0, i)[1])
+                        self.dynamic_max_shape = tuple(self.model.get_profile_shape(0, i)[2])
+                        self.context.set_binding_shape(i, self.dynamic_max_shape)   # max dynamic shape
+                        
+                        host_mem = np.empty(self.dynamic_max_shape, dtype)
+                        device_mem = cuda.mem_alloc(host_mem.nbytes)
+                    else:   # fixed shape
+                        # rich.print(f'>>> shape: {shape} | dtype: {dtype}')
+                        host_mem = np.empty(shape, dtype)
+                        device_mem = cuda.mem_alloc(host_mem.nbytes)
+                    
+                    self.bindings.append(int(device_mem))  # save input device mem
+                    self.inputs.append({'host': host_mem, 'device': device_mem})  # save inputs mem
+
+                # outputs
+                else:
+                    if self.dynamic:
+                        host_mem = np.empty(self.dynamic_max_shape, dtype)   # max dynamic shape
+                        device_mem = cuda.mem_alloc(host_mem.nbytes)   
+                    else:
+                        host_mem = np.empty(shape, dtype)
+                        device_mem = cuda.mem_alloc(host_mem.nbytes)
+                    self.bindings.append(int(device_mem))  # save output device mem
+                    self.outputs.append({'host': host_mem, 'device': device_mem})  # save outputs mem
+
+
+            # # test
+            # for i in range(self.model.num_bindings):
+
+            #     dtype = trt.nptype(self.model.get_binding_dtype(i))
+            #     # size = trt.volume(self.model.get_binding_shape(i))
+            #     name = self.model.get_binding_name(i)
+            #     shape = self.model.get_binding_shape(i)
+            #     # info
+            #     rich.print(f"test> {i} | {name} | {shape} | {dtype} | context shape: {self.context.get_binding_shape(i)}")
+            #     rich.print(f"---> {self.model.get_binding_dtype(i)}")
+
+            rich.print(f"dynamic: {self.dynamic} | fp16: {self.fp16} | fp32: {self.fp32} | int8: {self.int8}")
+            # sys.exit()
+
+            self.classes_names =  None
+
+
         else:
             LOGGER.error(f"Weights not load successfullly!")
             exit()
@@ -292,7 +380,9 @@ class Predictor:
                 # with TIMER('run_with_iobinding'):
                 self.session.run_with_iobinding(self.io_binding)  # infer, an OrtValue which has data allocated by ONNX Runtime on CUDA
                     
+                # LOGGER.info(f"out onnx ---> {self.ort_y.numpy().shape}")
                 # with TIMER(f'nms time'):
+
                 y = batched_nms(self.ort_y.numpy(), self.conf_threshold, self.nms_threshold)
                 y = scale_boxes_batch(y, self.ims, self.im0s)  # de-scale
                 return np.asarray(y, dtype=object)    # numpy.ndarray  
@@ -312,13 +402,136 @@ class Predictor:
                 return np.asarray(res)  # numpy.ndarray
 
 
-            elif self.is_other:
-                return self._infer_by_others(x)
+            elif self.is_other:  # other type model
+                # return self._infer_by_others(x)
+                pass
+
 
         elif self.pt:  # Not Now
             pass
-        elif self.engine:
-            pass
+
+
+        elif self.engine:   # TRT
+            # > self.ims is input!!!  default has one input
+
+            # input data dtype modify
+            if self.fp16:
+                self.xs = np.ascontiguousarray(self.ims.astype(np.float16))
+            elif self.int8:
+                self.xs = np.ascontiguousarray(self.ims.astype(np.int8))
+            else:
+                self.xs = np.ascontiguousarray(self.ims)
+
+            # for detector
+            if self.is_detector:    # det
+                
+                # self.ctx.push()
+                
+                with TIMER(f"data-prepare"):
+
+                    # inputs 
+                    for i in range(self.num_inputs):
+
+                        # dynamic -> re-malloc
+                        if self.dynamic and self.ims.shape != self.dynamic_max_shape:
+                            self.context.set_binding_shape(i, self.ims.shape)   # set context shape
+                            dtype = trt.nptype(self.model.get_binding_dtype(i))
+                            host_mem = self.xs
+                            device_mem = cuda.mem_alloc(host_mem.nbytes)  # re-malloc device mem
+                            self.bindings[i] = int(device_mem)  # update input device mem
+                            self.inputs[i] = {'host': host_mem, 'device': device_mem}  # update
+                        # fixed shape -> assigne input image
+                        else:
+                            self.inputs[i]['host'] = self.xs   # self.imgs is always the 1st input
+
+
+                    # outputs mem -> dynamic -> re-malloc
+                    if self.dynamic:
+                        for i in range(self.num_outputs):
+                            dtype = trt.nptype(self.model.get_binding_dtype(self.num_inputs + i))
+                            shape = self.context.get_binding_shape(self.num_inputs + i)
+                            host_mem = np.empty(shape, dtype)   # re-malloc host mem
+                            device_mem = cuda.mem_alloc(host_mem.nbytes)  # re-malloc device mem
+                            self.bindings[self.num_inputs + i] = int(device_mem)  # save output device mem
+                            self.outputs[i] = {'host': host_mem, 'device': device_mem}  # save outputs mem
+
+
+                    # rich.print(f"inputs host emm shape: {self.inputs[0]['host'].shape}")
+                    # rich.print(f"inputs host emm shape: {self.inputs[0]['host'].dtype}")
+                    # rich.print(f"inputs host emm shape: {self.inputs[0]['device']}")
+
+                    # rich.print(f"outputs host emm shape: {self.outputs[0]['host'].shape}")
+                    # rich.print(f"outputs host emm shape: {self.outputs[0]['host'].dtype}")
+                    # rich.print(f"outputs host emm shape: {self.outputs[0]['device']}")
+
+                    # sys.exit()
+
+
+                with TIMER(f"memcopy host->device"):
+
+                    # host -> device
+                    for mem in self.inputs:
+                        cuda.memcpy_htod_async(mem['device'], mem['host'], self.stream)
+
+
+                with TIMER(f"trt infer & synchronize"):
+                    # infer
+                    self.context.execute_async_v2(
+                        bindings=self.bindings,
+                        stream_handle=self.stream.handle
+                    )
+                    self.stream.synchronize()
+
+                with TIMER(f"memcopy device->host"):
+                    for mem in self.outputs:
+                        cuda.memcpy_dtoh_async(mem['host'], mem['device'], self.stream)
+                    y = [mem['host'] for mem in self.outputs] if self.num_outputs > 0 else self.outputs[0]['host']
+
+
+
+                with TIMER(f"post-process"):
+
+                    y = batched_nms(y, self.conf_threshold, self.nms_threshold)
+                    y = scale_boxes_batch(y, self.ims, self.im0s)  # de-scale
+                    
+                # rich.print(y)
+
+                return np.asarray(y, dtype=object)    # numpy.ndarray 
+
+
+
+
+
+
+
+
+                '''
+
+                # poset process
+                assert len(data) == 4
+                num_dets, bboxes, scores, labels = (i[0] for i in data)
+                nums = num_dets.item()
+                bboxes = bboxes[:nums]
+                scores = scores[:nums]
+                labels = labels[:nums]
+
+
+                # LOGGER.info(f"---> post process bboxes: {bboxes}")
+                # LOGGER.info(f"---> post process scores: {scores}")
+                # LOGGER.info(f"---> post process labels: {labels}")
+
+                return bboxes, scores, labels
+
+                '''
+
+
+
+            elif self.is_classifier:    # cls
+                pass
+
+            elif self.is_other:
+                return self._infer_by_others(x)
+
 
         else:
             pass
@@ -334,47 +547,14 @@ class Predictor:
     #     return x
 
 
-    # def __call__(self, x, do_post_process=True):
-    #     # x  ----> Dataset iterator
-    #     ys = []
-    #     for path, im, im0s, vid_cap, s in x:  # dataset
-    #         y = self.auto_infer()  # multi infer
-    #         ys.append(y)
-
-    #     return ys
-
-
-
-
     def __call__(self, x, do_post_process=True):
         # x -> dataloader
 
-        # LOGGER.info(f'x: {x}')
-        # self.ims, self.im0s = x.pre_process(
-        #     size=self.input_size,
-        #     is_detector=self.is_detector, 
-        #     is_classifier=self.is_classifier, 
-        #     is_other=self.is_other
-        # )
-
-
-        # sys.exit()
-
-        # 
         # with INSPECTOR('pre_process'):
         self.ims, self.im0s = self.pre_process(x, size=self.input_size)  # pre process for all type model
 
-        # rich.print(f"self.imgs ---> {self.ims.shape}")  # (bs, 3, 640, 640)
-        # rich.print(f"self.im0s ---> {self.im0s}")  # [ndarray, ndarry, ...]
-
-        # 策略1 batch推理： 如果是一堆图片，如: [img, img, img, ...](或者 一个txt文件, 里面存储着每个图片的地址，{手动解析})
-        # ===>  那么一次性推理所有图片, 或者单张图片推理两种模式
-        # 策略2 单/多个 视频流推理：如: [rtsp://, rtsp://, rtsp://, ...] 或者 一个txt文件, 里面存储着每个图片的地址, 
-        # ==> 那么采用多线程推理逐帧推理
-
-
-        # with INSPECTOR('auto_infer'):
-        y = self.auto_infer()  # multi infer
+        with INSPECTOR('auto_infer'):
+            y = self.auto_infer()  # multi infer
 
         return y
         # return self.post_process(y) if do_post_process else y  # post process   no need
@@ -407,5 +587,11 @@ class Predictor:
         for _ in range(times):
             _ = self(ims)
         # LOGGER.info(f'> {self.__class__.__name__} class done warmup!')
+
+
+
+ 
+
+
 
 

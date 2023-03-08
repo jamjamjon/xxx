@@ -1,0 +1,35 @@
+# defaults:
+#   - ../../base@_here_
+#   - _self_
+
+
+# override
+device: 3
+test_image: deploy/assets/5.jpg  # test image, when using model.test()  [optional] 
+model_class: CocoEngineModel   # required
+component_name: untitled   # TODO
+description: Coco engine model test!
+
+
+# modules
+modules:  # don't change this name
+  - coco_engine:  # model_name, required
+      model_type: detector   # required   (detector, classifier, others) 
+    #   model_weights: deploy/projects/coco/weights/yolov5n-fp32-static.engine 
+    #   model_weights: deploy/projects/coco/weights/yolov5n-fp16-static-fake.engine #
+      model_weights: deploy/projects/coco/weights/yolov5n-fp32-dynamic.engine  # 
+    #   model_weights: deploy/projects/coco/weights/yolov5n-fp16-dynamic.engine # wrong???? dynamic + fp16
+      
+      input_size: 640   # optional
+      conf_threshold: 0.25   # required
+      nms_threshold: 0.4   # required
+      # classes_names:  # optional
+      #   0: cellphone
+      #   1: playing_phone   
+      # min_bbox_size: 20   # min detection bouding box
+      # overlap_self_iou: 0.92  # phone and playing_phone iou
+
+
+  # - another_model_name:
+      # model_type: classifier
+      # ...

@@ -1,4 +1,5 @@
 import numpy as np
+import numpy
 import cv2
 from omegaconf import DictConfig, OmegaConf
 import contextlib
@@ -15,13 +16,13 @@ import sys
 import inspect
 import os
 from itertools import chain
-from numba import jit, njit
+# from numba import jit, njit
 import logging
 import pynvml
 import onnxruntime
 import weakref
 from dataclasses import dataclass
-from typing import Union
+from typing import Union, Any
 import re
 # from pympler import asizeof as pysizeof
 # sizeof = pysizeof.asizeof
@@ -33,20 +34,137 @@ import re
 WEIGHTS_TYPE = ('.onnx', '.pt', '.engine')
 MODEL_TYPE = ('detector', 'classifier', 'other')
 IMG_FORMAT = ('.bmp', '.jpg', '.jpeg', '.png')
-VIDEO_FORMAT = ('.mp4', '.flv', '.avi')
+VIDEO_FORMAT = ('.mp4', '.flv', '.avi', '.mov')
+STREAM_FORMAT = ('rtsp://', 'rtmp://', 'http://', 'https://')
 FLASK_APP = Flask(__name__)
 CONSOLE = Console()
 GB, MB, KB = 1 << 30, 1 << 20, 1 << 10
 LOGGER = logging.getLogger(__name__)   # hydra logging
 
 
-
 # ---------------------------------------------------------------------
+
+@dataclass
+class HostDeviceMemory:
+    # host device memory
+    host: Any
+    device: Any
+
+
+
+
+class Visualizer:
+    # use cv2
+
+    def __init__(self, line_width=None, color=(128, 255, 128), txt_color=(255, 255, 255)):
+        self.lw = line_width
+        self.color = color
+        self.txt_color = txt_color
+
+
+    def draw(self, im0, box=None, label=None, conf=None):
+
+        self.im = im0   # im0.copy()
+        self.lw = self.lw if self.lw else max(round(sum(im.shape) / 2 * 0.003), 2)  # line width
+
+        if box is not None:     # for detection
+            p1, p2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
+
+            # assign color for different classes
+            if label is not None:
+                assert isinstance(label, (int, str, float))
+                self.color = Colors()(sum([ord(x) for x in label])) if isinstance(label, str) else Colors()(label)
+            
+            cv2.rectangle(self.im, p1, p2, self.color, thickness=self.lw, lineType=cv2.LINE_AA)  # draw bbox
+
+            # draw text
+            if label is not None:
+                label = str(label) + ' ' + str(conf) if conf else ''  # label = cls + conf
+                tf = max(self.lw - 1, 1)  # font thickness
+                w, h = cv2.getTextSize(label, 0, fontScale=self.lw / 3, thickness=tf)[0]  # text width, height
+                outside = p1[1] - h >= 3
+                p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+                cv2.rectangle(self.im, p1, p2, self.color, -1, cv2.LINE_AA)  # filled
+                cv2.putText(
+                    self.im,
+                    label, 
+                    (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
+                    0,
+                    self.lw / 3,
+                    self.txt_color,
+                    thickness=tf,
+                    lineType=cv2.LINE_AA
+                )
+
+        elif box is None and label is not None:     # for classification
+            h, w = self.im.shape[:-1]
+            label = str(label) + ' ' + str(conf) if conf else ''  # label = cls + conf
+            tf = max(self.lw - 1, 1)  # font thickness
+            cv2.putText(
+                self.im, 
+                label,
+                (w // 10, h // 5), 
+                0, 
+                self.lw / 3, 
+                self.color, 
+                thickness=tf, 
+                lineType=cv2.LINE_AA
+            )
+
+
+        elif not all((box, label, conf)):
+            LOGGER.warning('No elements to visualize!')
+            return 
+
+
+        # TODO: cv2.imahow()
+
+
+
+class Colors:
+    '''
+        colors palette
+        hex 颜色对照表    https://www.cnblogs.com/summary-2017/p/7504126.html
+        RGB的数值 = 16 * HEX的第一位 + HEX的第二位
+        RGB: 92, 184, 232 
+        92 / 16 = 5余12 -> 5C
+        184 / 16 = 11余8 -> B8
+        232 / 16 = 14余8 -> E8
+        HEX = 5CB8E8
+    '''
+
+    def __init__(self, shuffle=False):
+        # hex = matplotlib.colors.TABLEAU_COLORS.values()
+        hex = ('33FF00', '9933FF', 'CC0000', 'FFCC00', '99FFFF', '3300FF', 'FF3333', # new add
+               'FF3838', 'FF9D97', 'FF701F', 'FFB21D', 'CFD231', '48F90A', '92CC17', '3DDB86', 
+               '1A9334', '00D4BB', '2C99A8', '00C2FF', '344593', '6473FF', '0018EC', '8438FF', 
+               '520085', 'CB38FF', 'FF95C8', 'FF37C7')
+        
+        # shuffle color 
+        if shuffle:
+            hex_list = list(hex)
+            random.shuffle(hex_list)
+            hex = tuple(hex_list)
+
+        self.palette = [self.hex2rgb('#' + c) for c in hex]
+        self.n = len(self.palette)
+        # self.b = random   # also for shuffle color 
+
+
+    def __call__(self, i, bgr=False):        
+        c = self.palette[int(i) % self.n]
+        return (c[2], c[1], c[0]) if bgr else c
+
+    @staticmethod  
+    def hex2rgb(h):  # int('CC', base=16) 将16进制的CC转成10进制 
+        return tuple(int(h[1 + i:1 + i + 2], 16) for i in (0, 2, 4))
+
+
+
 
 @dataclass
 class DeviceInfo:
     # gpu device 
-
     id: int = 0
     type: str = 'cpu'
 
@@ -77,6 +195,15 @@ class InstanceInfo:
 def get_device(device: Union[int, str] = 'cpu') -> DeviceInfo:
     # support device='0', device=0, device='cuda:0', device='cpu', ..
     # not support multi device: device='0,1,2'
+
+    # test code
+    # print(get_device(1))
+    # print(get_device('cuda: 999'))
+    # print(get_device(' cuda:0 '))
+    # print(get_device('1'))
+    # print(get_device('cpu'))
+
+
 
     device = str(device).strip().lower().replace('cuda:', '').replace(' ', '')  # to string, "cuda:1" -> '1'
     is_cpu = device == 'cpu'
@@ -599,41 +726,6 @@ def nms_vanil(boxes, scores, threshold):
 
 
 
-# class Visualizer:
-    # # TODO: bugs
-    # def visulize(self, img, xyxys=None, conf=None, label=None, line_thickness=2):
-
-    #     # read image if it is not ndarray
-    #     if isinstance(img, str):   
-    #         img = cv2.imread(img)
-    #     assert isinstance(img, np.ndarray), f'Image type should be np.ndarray'
-
-
-    #     if self.is_detector:
-    #         assert xyxys is not None, f"detector results must has `xyxys` coordinates!"
-    #         for xyxy in xyxys:
-    #             cv2.rectangle(img, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), line_thickness, cv2.LINE_AA)  # filled
-    #             if label is not None:
-    #                 text = label + ' ' + conf if conf is not None else label
-    #                 cv2.putText(img, text,
-    #                     (int(xyxy[0]), int(xyxy[1] - 5)), 0, 0.7, 
-    #                     (0, 255, 0), 
-    #                     thickness=line_thickness, lineType=cv2.LINE_AA)
-            
-    #     elif self.is_classifier:
-    #         assert label is not None, f"classifier results must has `label`!"
-    #         text = label + ' ' + conf if conf is not None else label
-    #         h, w = img.shape[:-1]
-    #         line_thickness = 1
-    #         cv2.putText(img, text,
-    #             (w // 10, h // 5), 0, 0.6, 
-    #             (0, 255, 0), 
-    #             thickness=line_thickness, lineType=cv2.LINE_AA)
-
-
-    #     cv2.imshow('demo', img)
-    #     cv2.waitKey(0)
-    #     cv2.destroyAllWindows()
 
 
 

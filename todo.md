@@ -28,11 +28,21 @@
 [ ] base config 新增，作为基类配置，用于其他配置继承，重新优化配置, 包括component name
 [ ] 配置文件中的`module`字段可以修改成为component name!
 [ ] 支持跟踪算法 
-
-[ ] 支持multi-stream输入
-[ ] 支持multi-video输入
-[ ] 支持img和video混合输入
+[x] 支持multi-stream输入
+[x] 支持multi-video输入
+[x] 支持img和video混合输入
 [ ] 支持mps
+[ ] 检测结果保存： multi-stream, multi-images, labels
+
+
+# 23.03.08
+[ ] host & device mem class
+[ ] cuda-rt
+[ ] trt fp16 
+[ ] trt int8
+[ ] speed test
+[ ] fp16 / int8 set_binding_shape directly
+ 
 
 
 # 23.02.10
@@ -105,7 +115,7 @@
 
 
 # 23.02.23
-
 [X] 新增批量label修改
 [x] img trackbar上添加一个新的trackbar，用来避免错误点击
+[x] BUG::: letterbox and stacking!!
 

@@ -1,0 +1,4 @@
+deploy/assets/5.jpg
+deploy/assets/6.jpg
+deploy/assets/bus.jpg
+/home/zhangj/MLOPS/MODELS/AutoInfer/xxx-master/deploy/assets/playing_phone.mp4

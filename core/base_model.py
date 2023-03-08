@@ -72,7 +72,6 @@ class EnsembleModel(ABC):
         # CONSOLE.log(inspect.stack())
 
         # --------------------------------------------------------------
-        # TODO: rewrite configs
         # check device
         self.device: DeviceInfo = get_device(config[0].get('device', 'cpu'))  # new 
         self.test_image = config[0].get('test_image', None)
@@ -165,13 +164,6 @@ class EnsembleModel(ABC):
             v._warmup(times=times, batch_size=batch_size)
         LOGGER.info(f'> {self.__class__.__name__} class done warmup!')
 
-
-
-    # def __call__(self, x):
-    # # x --> Datasets
-    #     for path, im, im0s, vid_cap, s in x:
-            
-            
 
 
     def __call__(self, x):

@@ -1,3 +1,5 @@
+import tensorrt
+
 import numpy as np
 import onnxruntime
 from pathlib import Path
@@ -27,8 +29,8 @@ if str(ROOT_DIR) not in sys.path:
 # modules 
 from core.base_model import EnsembleModel
 from core.utils import (parse_model_config, CONSOLE, build_resolver, resource_info, gpu_info, TIMER, 
-                        get_device)
-from core.dataloader import LoadImages, LoadBatchImages, LoadStreams
+                        get_device, Visualizer, Colors)
+from core.dataloader import DataLoader  # LoadImages, LoadBatchImages, LoadStreams, 
 
 
 
@@ -39,6 +41,11 @@ CONFIG_NAME = "default"
 
 # derived model class
 class PlayingPhoneModel(EnsembleModel):
+
+    # @DataLoader()
+    # def __call__(self, x):
+    #     return self.post_process(x)
+
 
     # you must inplement
     def post_process(self, x):
@@ -136,226 +143,127 @@ def main(cfg) -> None:
 
 
     cfg = parse_model_config(cfg)
-
     # rich.print(cfg)
-
-
-    # print(get_device(1))
-    # print(get_device('cuda: 999'))
-    # print(get_device(' cuda:0 '))
-    # print(get_device('1'))
-    # print(get_device('cpu'))
-
-
     model = PlayingPhoneModel(cfg, verbose=False, do_warmup=False)
-
-    rich.print(model.get_instances_table())
-
-
-    # model.instances_info()
-
+    # rich.print(model.get_instances_table())   # model.instances_info()
     # rich.print(model.instances)
 
-
+    # ----------------------------
+    #   switch device test    
+    # ----------------------------
     # model.to('cpu')
     # rich.print(model.get_instances_table())
 
     # model.to(2)
     # rich.print(model.get_instances_table())
 
-    # exit()
+
+    # ----------------------------
+    #   multi instances test    
+    # ---------------------------- 
     # model2 = PlayingPhoneModel(cfg, verbose=False, do_warmup=False)
     # model3 = PlayingPhoneModel(cfg, verbose=False, do_warmup=False)
     # model4 = PlayingPhoneModel(cfg, verbose=False, do_warmup=False)
-
-
     # a = model2
-    # b = model2
-
-    # del model3, model4
-
-    # model.instances_info()   # has bugs , dont user this
-    # rich.print(PlayingPhoneModel.get_instances_table())
+    # del model3, model4, model2
+    # rich.print(PlayingPhoneModel.get_instances_table())     # model.instances_info()   # has bugs , dont user this
 
 
-
-
+    # ----------------------------
+    #   cpu & gpu info    
+    # ---------------------------- 
     # resource_info(display=True)
     # gpu_info(display=True)
 
 
-
-    # batch infer
-    img = [
+    # ----------------------------
+    #   multi input data infer  
+    # ---------------------------- 
+    source = [
+            "deploy/assets/0.jpg",
             "deploy/assets/5.jpg",
             "deploy/assets/6.jpg",
             "deploy/assets/bus.jpg",
+            # "deploy/assets/bus.jpg",  # auto remove 
+            # "/home/zhangj/MLOPS/MODELS/AutoInfer/xxx-master/deploy/assets/playing_phone.mp4",
+
+            # # rtsp should not input with above
+            # "rtsp://admin:zfsoft888@192.168.0.127:554/h265/ch1/",
+            # "rtsp://admin:KCNULU@192.168.3.107:554/h264/ch1/",
+            # "http://devimages.apple.com.edgekey.net/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8",
             ]
 
+    dataloader = DataLoader(source=source, batch_size=2, vid_stride=1)
+    # dataloader = DataLoader(source='deploy/projects/playing_phone/rtsp.txt')
+    # dataloader = DataLoader(source='deploy/projects/playing_phone/source.txt', batch_size=2)
+
+    vis = Visualizer(line_width=2, color=Colors(shuffle=False)(1))   # 
+
+    for idx, (path, im0, vid_cap, msg) in enumerate(dataloader):
+        with TIMER(f"{idx}-th:"):
+            y = model(im0)    # infer   im0: [img, img, ...]
+        # rich.print(y)
+
+        # # visualize
+        # for idx, elem in enumerate(y):
+        #     image_id = elem['image_id']
+
+        #     if elem['box']:
+        #         xyxy = elem['box']
+        #         conf = elem['conf']
+        #         class_label = elem['class_label']
+        #         vis.draw(im0[image_id], box=xyxy, label=class_label, conf=f"{conf:.4f}")  # draw
 
 
-    # 通过输入判断是否是batch推理还是单帧推理
+        #     cv2.imshow('demo_' + str(image_id), im0[image_id])
+        #     key = cv2.waitKey(1)
+        #     if key == 27:
+        #         cv2.destroyAllWindows()
+        #         return
 
 
+    # ----------------------------
+    #   multi input data infer  
+    #   switch device
+    # ---------------------------- 
+    # source2 = [
+    #         # "deploy/assets/5.jpg",
+    #         # "deploy/assets/6.jpg",
+    #         # "deploy/assets/bus.jpg",
+    #         # "deploy/assets/bus.jpg",  # auto remove 
+    #         # "/home/zhangj/MLOPS/MODELS/AutoInfer/xxx-master/deploy/assets/playing_phone.mp4",
 
-    # 写成装饰器！！！！Dataset 仅仅用来处理不同形式的输入数据，不要把model_type以及对应的前处理引入
-    # @Dataset
-    # y = model(img)
+    #         # rtsp should not input with above
+    #         "rtsp://admin:zfsoft888@192.168.0.127:554/h265/ch1/",
+    #         "rtsp://admin:KCNULU@192.168.3.107:554/h264/ch1/",
+    #         "http://devimages.apple.com.edgekey.net/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8",
+    #         ]
 
+    # model.to(0)  # change device
+    # rich.print(model.get_instances_table())   # model.instances_info()
 
-    # 策略1 batch推理： 如果是一堆图片，如: [img, img, img, ...](或者 一个txt文件, 里面存储着每个图片的地址，{手动解析})
-    # ===>  那么一次性推理所有图片, 
-    # dataloader = LoadBatchImages(path=img)
-    # y = model(dataloader)    # infer
-
-    # y = model(img)    # infer
-    # rich.print(y)
-
-
-    # # ===> 单张图片推理(图片+视频)
-    # img_txt = 'deploy/projects/playing_phone/source.txt'
-    # dataloader = LoadImages(path=img_txt, vid_stride=5)
-    # # dataloader = LoadImages(path=img)
-    # # # dataloader = LoadImages(path='/Users/jamjon/Documents/Assets/fall_1.mp4')
-
-    # for path, im0, _, s in dataloader:
-    #     # rich.print(path)
-    #     rich.print(s)
-    #     y = model([im0])    # single image
+    # dataloader2 = DataLoader(source=source2, batch_size=2, vid_stride=10)
+    # for idx, (path, im0, vid_cap, msg) in enumerate(dataloader2):
+    #     with TIMER(f"{idx}-th:"):
+    #         y = model(im0)    # infer   im0: [img, img, ...]
     #     rich.print(y)
 
     #     # visualize
-    #     for elem in y:
+    #     for idx, elem in enumerate(y):
+    #         image_id = elem['image_id']
+
     #         if elem['box']:
     #             xyxy = elem['box']
     #             conf = elem['conf']
     #             class_label = elem['class_label']
+    #             vis.draw(im0[image_id], box=xyxy, label=class_label, conf=f"{conf:.4f}")  # draw
 
-    #             cv2.rectangle(im0, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2, cv2.LINE_AA)  # filled
-    #             cv2.putText(
-    #                 im0, 
-    #                 class_label + ' ' + str(conf),
-    #                 (int(xyxy[0]), int(xyxy[1] - 5)), 0, 0.7, 
-    #                 (0, 255, 0), 
-    #                 thickness=2, 
-    #                 lineType=cv2.LINE_AA
-    #             )
 
-    #         cv2.imshow('demo', im0)
+    #         cv2.imshow('demo_' + str(image_id), im0[image_id])
     #         key = cv2.waitKey(1)
     #         if key == 27:
     #             cv2.destroyAllWindows()
     #             return
-
-
-
-    # 策略2 单/多个 视频流推理：如: [rtsp://, rtsp://, rtsp://, ...] 或者 一个txt文件, 里面存储着每个stream的地址, 
-    # ==> 那么采用多线程推理逐帧推理
-    rtsp_txt = 'deploy/projects/playing_phone/rtsp.txt'
-    dataloader = LoadStreams(sources=rtsp_txt)
-    for path, im, im0, _, s in dataloader:
-        # rich.print(path)
-        # rich.print(s)
-
-        # rich.print(f'im shape: {im.shape}')
-        # rich.print(f'im0 shape: {len(im0)}')
-
-        # sys.exit()
-
-        y = model(im0)    # infer   # im: [bs, 3, h, w] | im0: [img, img, ...]
-        rich.print(y)
-
-        # visualize
-        for idx, elem in enumerate(y):
-            if elem['box']:
-                xyxy = elem['box']
-                conf = elem['conf']
-                class_label = elem['class_label']
-                image_id = elem['image_id']
-
-                cv2.rectangle(im0[idx], (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2, cv2.LINE_AA)  # filled
-                cv2.putText(
-                    im0, 
-                    class_label + ' ' + str(conf),
-                    (int(xyxy[0]), int(xyxy[1] - 5)), 0, 0.7, 
-                    (0, 255, 0), 
-                    thickness=2, 
-                    lineType=cv2.LINE_AA
-                )
-
-            cv2.imshow('demo_' + str(idx), im0[idx])
-            key = cv2.waitKey(1)
-            if key == 27:
-                cv2.destroyAllWindows()
-                return
-
-
-
-
-
-
-
-    sys.exit()
-
-    img2 = [
-            "deploy/assets/5.jpg",
-            "deploy/assets/5.jpg",
-         ]
-
-
-    model.to(0)
-    rich.print(PlayingPhoneModel.get_instances_table())
-    y=model(img2)
-    rich.print(y)
-
-
-    
-
-    # model.to('cpu')
-    # rich.print(PlayingPhoneModel.get_instances_table())
-    # y=model(img2)
-    # rich.print(y)
-
-
-
-
-    
-    # model.to('cpu')
-    # rich.print(PlayingPhoneModel.get_instances_table())
-   
-    exit()
-    for i in range(5):
-        rich.print(PlayingPhoneModel.get_instances_table())
-
-        with TIMER(f"{i}-th:"):
-            y = model(img)
-            #rich. print(y)
-            model.to(1)  #   ==============> may has bug!!
-
-            # print('-==================\n')
-
-    # # visualize
-    # for i, res in enumerate(y):
-    #     image_id = res['image_id']
-    #     class_label = res['class_label']
-    #     xyxy = res['box']
-
-
-    #     image = cv2.imread(img[image_id])
-
-    #     if xyxy is not None:
-
-    #         cv2.rectangle(image, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2, cv2.LINE_AA)  # filled
-    #         cv2.putText(image, str(class_label),
-    #                     (int(xyxy[0]), int(xyxy[1] - 5)), 0, 0.7, 
-    #                     (0, 255, 0), 
-    #                     thickness=1, lineType=cv2.LINE_AA)
-
-
-    #     cv2.imshow('demo', image)
-    #     cv2.waitKey(0)
-
-
 
 
     

@@ -17,6 +17,8 @@ modules:  # don't change this name
   - playing_phone:  # model_name, required
       model_type: detector   # required   (detector, classifier, others) 
       model_weights: deploy/projects/playing_phone/weights/play_phone_221202.onnx  # required
+      # model_weights: deploy/projects/playing_phone/weights/yolov8n-nms.onnx  # required
+      
       input_size: 800   # optional
       conf_threshold: 0.6   # required
       nms_threshold: 0.4   # required
