@@ -53,7 +53,20 @@ CONFIG_NAME = "default"
 
 
 class EnsembleModel(ABC):
-    # 
+    #     # TODO: 
+    # 把base predictor里面的东西拿过来，这这里进行，
+    # 此类外新增backends基类，新增onnx_backends类，新增tensorrt backend类，
+    # 此类外新增Pre process类，用来处理cls，det，seg，等模型的输入处理
+    # 此类外新增post process类，用来处理cls，det，seg，等后处理，并新增业务后处理接口
+    # 类内新增module之间的函数接口，比如det->cls，检测后的bbox需要扩大1.5倍，再送入cls模型，
+    # 此类外新增request类，用于组建队列，延迟组建动态batch等，支持async异步请求
+    # 此类外新增response类，用于返回特定任务的格式的数据，
+    
+    # 解析模型构建，新增实例化几个模型，最大batchsize等，实例化的模型的device，
+    # 新增gpu cpu上查看模型的吞吐量、延迟等性能分析工具
+    # 轻量化 类内实例的管理，减少内存占用
+    # 组建配置优化
+
 
     INSTANCES = {'active': {}, 'deprecated': {}}   
     # {
